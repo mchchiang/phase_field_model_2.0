@@ -6,7 +6,7 @@ import sys
 
 # This code must be run with python3!
 if (sys.version_info < (3, 5)):
-    print("This code mus tbe run with Python version 3.5 or higher")
+    print("This code must be run with Python version 3.5 or higher")
     sys.exit(1)
 
 import numpy as np

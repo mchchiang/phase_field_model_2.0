@@ -75,7 +75,7 @@ for rows in zip(*files):
             error = sigma / math.sqrt(n)
 
         if (has_ref_col):
-            output = "{:e} {:e} {:e} {:e}\n".format(ref, avg, sigma, error)
+            output = "{:g} {:e} {:e} {:e}\n".format(ref, avg, sigma, error)
         else:
             output = "{:e} {:e} {:e}\n".format(avg, sigma,  error)
         writer.write(output)

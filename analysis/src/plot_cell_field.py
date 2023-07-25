@@ -2,292 +2,154 @@
 # plot_cell_field.py
 
 import sys
-
-# This code must be run with python3!
-if (sys.version_info < (3, 5)):
-    print("This code must be run with Python version 3.5 or higher")
-    sys.exit(1)
-
 import numpy as np
-from skimage import measure
-import matplotlib as mpl
-import matplotlib.cm as mplcm
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from matplotlib import rc
-from matplotlib.animation import FuncAnimation
-from matplotlib.collections import PatchCollection
-from matplotlib.patches import Polygon
+from plot_field import *
 
 args = sys.argv
-if (len(args) != 24):
-    print("usage: plot_cell_field.py npoints lx ly clx cly Dr dt data_col data_min data_max tic_start tic_end tic_inc tstart tend tinc make_movie print_to_screen field_file_dir field_file_name pos_file data_file out_file")
+if (len(args) < 15):
+    print("Usage: plot_cell_field.py npoints lx ly clx cly tstart tend tinc make_movie print_to_screen field_file_dir field_file_name pos_file out_file [--options ...]")
     sys.exit(1)
 
-npoints = int(args.pop(1))
-lx = int(args.pop(1))
-ly = int(args.pop(1))
-clx = int(args.pop(1))
-cly = int(args.pop(1))
-Dr = float(args.pop(1))
-dt = float(args.pop(1))
-data_col = int(args.pop(1)) # -1 for index field, -2 for overlap
-data_min = float(args.pop(1))
-data_max = float(args.pop(1))
-tic_start = float(args.pop(1))
-tic_end = float(args.pop(1))
-tic_inc = float(args.pop(1))
-tstart = int(args.pop(1))
-tend = int(args.pop(1))
-tinc = int(args.pop(1))
+params = PlotCellFieldParams()
+
+params.npoints = int(args.pop(1))
+params.lx = int(args.pop(1))
+params.ly = int(args.pop(1))
+params.clx = int(args.pop(1))
+params.cly = int(args.pop(1))
+params.tstart = int(args.pop(1))
+params.tend = int(args.pop(1))
+params.tinc = int(args.pop(1))
 make_movie = bool(int(args.pop(1)))
 print_to_screen = bool(int(args.pop(1)))
-field_file_dir = args.pop(1)
-field_file_name = args.pop(1)
-pos_file = args.pop(1)
-data_file = args.pop(1)
+params.field_dir = args.pop(1)
+params.field_name = args.pop(1)
+params.pos_file = args.pop(1)
 out_file = args.pop(1)
-xbuff = 0.2*lx
-ybuff = 0.2*ly
-nframes = (tend-tstart)//tinc+1
 
-use_label = 1 # 1
-use_cbar = 0 # 1
+pfield = PlotCellField(params)
 
-if (not make_movie):
-    tend = tstart
+# Check if other extra options are added
+found_new_options = False
+options = ["--force", "--data", "--colour-by-index", "--cm", "--director",
+           "--focus", "--time-label", "--deform-angle", "--defect", "--cbar",
+           "--deform-axis", "--edge-alpha", "--cell-alpha"]
+show_cbar = False
 
-# Data arrays
-polygons = [[] for i in range(nframes)]
-points = [[] for i in range(nframes)]
-pos = [[(0.,0.) for j in range(npoints)] for i in range(nframes)]
-data_val = [[0.0 for j in range(npoints)] for i in range(nframes)]
-index_map = [[] for i in range(nframes)]
-time_map = [i*tinc+tstart for i in range(nframes)]
 
-# Useful functions for plotting cell fields
-def iwrap(x):
-    global lx
-    remainder = x % lx
-    if (remainder >= 0):
-        return remainder
-    return lx + remainder
+# Tokenize by --
+opts = []
+nopts = -1
+if (not args[1].startswith("--")):
+    print("Error: optional arguments must begin with --")
+    sys.exit(1)
+for i in range(1,len(args)):
+    if (args[i].startswith("--")):
+        opts.append([])
+        nopts += 1
+    if (nopts >= 0):
+        opts[nopts].append(args[i])
 
-def jwrap(y):
-    global ly
-    remainder = y % ly
-    if (remainder >= 0):
-        return remainder
-    return ly + remainder
+for opt in opts:
+    option = opt[0]
+    if (not option in options):
+        print("Error: option {:s} does not exist".format(option))
+        sys.exit(1)
+    if (option == "--force"):
+        if (len(opt) != 2):
+            print("Usage: --force force_file")
+            sys.exit(1)
+        force_file = opt.pop(1)
+        pforce = PlotForce(pfield, force_file)
+        pfield.add_plot_comp(pforce)
+    elif (option == "--data"):
+        if (len(opt) < 10):
+            print("Usage: --data data_col vmin vmax tic_min tic_max",
+                  "tic_inc discrete label data_file [cmap_min cmap_max]")
+            sys.exit(1)
+        data_col = int(opt.pop(1))
+        vmin = float(opt.pop(1))
+        vmax = float(opt.pop(1))
+        tic_min = float(opt.pop(1))
+        tic_max = float(opt.pop(1))
+        tic_inc = float(opt.pop(1))
+        discrete = bool(opt.pop(1))
+        label = opt.pop(1)
+        data_file = opt.pop(1)
+        cmap_min = 0.0
+        cmap_max = 1.0
+        if (len(opt) > 1): cmap_min = float(opt.pop(1))
+        if (len(opt) > 1): cmap_max = float(opt.pop(1))
+        pdata = PlotSimpleData(pfield, data_col, vmin, vmax, data_file,
+                               tic_min, tic_max, tic_inc)
+        pfield.add_data(pdata, None, show_cbar, discrete, label, None,
+                        cmap_min, cmap_max)
+    elif (option == "--colour-by-index"):
+        pfield.colour_by_index()
+    elif (option == "--cm"):
+        pfield.add_cell_cm()
+    elif (option == "--cbar"):
+        show_cbar = True
+    elif (option == "--cell-alpha"):
+        if (len(opt) != 2):
+            print("Usage: --cell-alpha alpha")
+            sys.exit(1)
+        alpha = float(opt.pop(1))
+        pfield.set_cell_alpha(alpha)        
+    elif (option == "--edge-alpha"):
+        if (len(opt) != 2):
+            print("Usage: --edge-alpha alpha")
+            sys.exit(1)
+        alpha = float(opt.pop(1))
+        pfield.set_edge_alpha(alpha)
+    elif (option == "--focus"):
+        if (len(opt) < 2):
+            print("Usage: --focus cell_index [width] [time]")
+            sys.exit(1)
+        cell_index = int(opt.pop(1))
+        width = int(opt.pop(1)) if (len(opt) > 1) else None
+        time = int(opt.pop(1)) if (len(opt) > 1) else None
+        pfield.focus(cell_index, width, time)
+    elif (option == "--time-label"):
+        if (len(opt) != 3):
+            print("Usage: --time-label Dr dt")
+            sys.exit(1)
+        Dr = float(opt.pop(1))
+        dt = float(opt.pop(1))
+        pfield.add_time_label(Dr,dt)
+    elif (option == "--deform-angle"):
+        if (len(opt) != 2):
+            print("Usage: --deform-angle deform_file")
+            sys.exit(1)
+        deform_file = opt.pop(1)
+        pdata = PlotDeformAngle(pfield, deform_file)
+        pi = np.pi
+        pfield.add_data(pdata, "twilight_shifted", show_cbar, False,
+                        r"$\theta$",
+                        [[0.0,pi*0.5,pi],["0",r"$\pi/2$",r"$\pi$"]])
+    elif (option == "--director"):
+        if (len(opt) < 2):
+            print("Usage: --director director_file [alpha]")
+            sys.exit(1)
+        director_file = opt.pop(1)
+        alpha = opt.pop(1) if (len(opt) > 1) else 1.0        
+        pdirect = PlotDirector(pfield, director_file, alpha)
+        pfield.add_plot_comp(pdirect)
+    elif (option == "--deform-axis"):
+        if (len(opt) < 2):
+            print("Usage: --deform-axis deform_file [alpha]")
+            sys.exit(1)
+        deform_file = opt.pop(1)
+        alpha = opt.pop(1) if (len(opt) > 1) else 1.0
+        pdeform = PlotDeformAxis(pfield, deform_file, alpha)
+        pfield.add_plot_comp(pdeform) 
+    elif (option == "--defect"):
+        if (len(opt) != 2):
+            print("Usage: --defect defect_file")
+            sys.exit(1)
+        defect_file = opt.pop(1)
+        pdefect = PlotDefect(pfield, defect_file)
+        pfield.add_plot_comp(pdefect)
 
-def add_polygon(index, cxcm, cycm, xcm, ycm, dx, dy, contour, frame):
-    global points, polygons, index_map, lx, ly, xbuff, ybuff
-    xcm += dx
-    ycm += dy
-    if (xcm < lx+xbuff and xcm > -xbuff and ycm < ly+ybuff and ycm > -ybuff):
-        poly = np.copy(contour)
-        poly[:,0] += (xcm-cxcm) + 0.5
-        poly[:,1] += (ycm-cycm) + 0.5
-        points[frame].append((xcm,ycm))
-        polygons[frame].append(Polygon(poly))
-        index_map[frame].append(index)
 
-periodic_loc = [(lx,-ly),(lx,0),(lx,ly),(0,-ly),(0,0),(0,ly),(-lx,-ly),
-                (-lx,0),(-lx,ly)]
-
-# Read cell field data
-def read_field(index, frame, time):
-    global fileroot
-    filename = field_file_dir + ("/cell_{:d}/".format(index)) + \
-               field_file_name + ("cell_{:d}.dat.{:d}".format(index, time))
-    with open(filename,'r') as field_reader:
-        # For computing the local field centre of mass
-        xavg = 0.0
-        yavg = 0.0
-        mass = 0.0
-        local_field = np.zeros((clx,cly))
-        for l, line in enumerate(field_reader):
-            data = line.split()
-            if (len(data) != 3): continue
-            i = int(data[0])
-            j = int(data[1])
-            phi = float(data[2])
-            local_field[i,j] = phi
-            xavg += (phi*(i+0.5)) # Use the centre of a lattice element
-            yavg += (phi*(j+0.5))
-            mass += phi
-        if (mass > 0.0):
-            xavg /= mass
-            yavg /= mass
-        else:
-            xavg = 0.0
-            yavg = 0.0
-        contours = measure.find_contours(local_field, 1.0)
-        contour = contours[0]
-        for pt in periodic_loc:
-            add_polygon(index, xavg, yavg, pos[frame][index][0], 
-                        pos[frame][index][1], pt[0], pt[1], contour, frame)
-
-# Read position data
-nlines = npoints + 2
-reader = open(pos_file, 'r')
-
-while True:
-    # Read header section (including time info)
-    for i in range(2):
-        line = reader.readline()
-    
-    if (not line): break
-    data = line.split()
-    time = int(data[1])
-    if (time > tend):
-        break
-    elif (time < tstart or (time-tstart)%tinc != 0):
-        for i in range(npoints):
-            line = reader.readline()
-    else:
-        print("Reading data at timestep = {:d}".format(time))
-        frame = (time-tstart)//tinc
-        for n in range(npoints):
-            line = reader.readline()
-            data = line.split()
-            
-            # Read wrapped position data
-            x = float(data[0])
-            y = float(data[1])
-            pos[frame][n] = (x,y)
-            
-            # Read cell field data
-            read_field(n, frame, time)
-            
-reader.close()
-
-# Read data file
-if (data_col >= 0):
-    data_reader = open(data_file, 'r')
-    while True:
-        # Read header section (including time info)
-        for i in range(2):
-            line = data_reader.readline()
-        if (not line): break
-        data = line.split()
-        time = int(data[1])
-        if (time > tend):
-            break
-        elif (time < tstart or (time-tstart)%tinc != 0):
-            for i in range(npoints):
-                data_reader.readline()
-        else:
-            print("Reading data at timestep = {:d}".format(time))
-            frame = (time-tstart)//tinc
-            for n in range(npoints):
-                line = data_reader.readline()
-                data = line.split()
-                data_val[frame][n] = float(data[data_col])
-    data_reader.close()
-    
-    
-# Make animation
-# Plot settings
-fontsize = 14 #20
-norm = mpl.colors.Normalize(vmin=data_min, vmax=data_max, clip=True)
-mapper = mplcm.ScalarMappable(norm=norm, cmap=mplcm.RdYlBu_r)
-mapper.set_array([])
-
-fig, ax = plt.subplots()
-ax.set_aspect('equal') # For maintaining aspect ratio
-ax.set_xlim([0,lx])
-ax.set_ylim([0,ly])
-
-if (use_cbar):
-    cbar = plt.colorbar(mapper,fraction=0.046,pad=0.04)
-    cbar.set_ticks(np.arange(tic_start, tic_end+tic_inc/2.0, tic_inc))
-
-#if (not make_movie):
-# Use Latex typesetting when not making movies
-#    mpl.rcParams["text.latex.unicode"] = True
-#    mpl.rcParams["text.latex.preamble"] = [
-#        r'\usepackage{amsmath}',
-#        r'\usepackage{amssymb}',
-#        r'\usepackage[scaled=1]{helvet}',
-#        r'\usepackage{sansmath}',
-#        r'\sansmath']
-#    plt.rc("text", usetex=True)
-
-plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['font.sans-serif'] = 'FreeSans' # A font close to Helvetica
-
-ax.tick_params(axis="both", labelsize=fontsize)
-if (use_cbar):
-    cbar.ax.tick_params(labelsize=fontsize)
-
-# Draw borders but no axes and ticks
-plt.tick_params(axis="both", which="both", bottom=False, top=False,
-                labelbottom=False, right=False, left=False, labelleft=False)
-
-# Set plot margins
-#plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
-plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0, hspace=0)
-
-# Get the artist for plotting centre of Voronoi cells
-for i in range(nframes):
-    points[i] = np.array(points[i])
-plt_pts, = ax.plot([],[], '.', markersize=5, color="black") # Empty data
-
-# Get the artist for plotting the time label
-if (use_label):
-    plt_time_txt = ax.text(0.5,0.01, "", fontsize=14,
-                           horizontalalignment="center",
-                           transform=plt.gcf().transFigure)
-    plt_time_txt.set_fontsize(fontsize)
-
-# Get the artist for plotting the polygons
-patches_int = PatchCollection([], linewidth=0)
-plt_polygons_int = ax.add_collection(patches_int)
-patches_out = PatchCollection([], linewidth=1)
-plt_polygons_out = ax.add_collection(patches_out)
-plt_polygons_out.set_facecolor((0.0,0.0,0.0,0.0))
-plt_polygons_out.set_edgecolor("black")
-
-def plot_data(frame):
-    global pos, index_map, time_map
-    
-    # Plot centres of cells
-    plt_pts.set_xdata(points[frame][:,0])
-    plt_pts.set_ydata(points[frame][:,1])
-    
-    # Plot the cell polygons
-    colors = []
-    for pt in range(len(polygons[frame])):
-        if (data_col >= 0):
-            colors.append(mapper.to_rgba(
-                data_val[frame][index_map[frame][pt]], alpha=0.8))
-        else:
-            colors.append(mapper.to_rgba(index_map[frame][pt], alpha=0.8))
-    plt_polygons_int.set_paths(polygons[frame])
-    plt_polygons_int.set_facecolor(colors)
-    plt_polygons_out.set_paths(polygons[frame])
-    
-    # Plot the time label
-    if (use_label):
-        plt_time_txt.set_text(r"$D_rt = {:.1f}$".format(time_map[frame]*Dr*dt))
-    
-    return plt_pts, plt_polygons_int, plt_polygons_out
-
-if (make_movie):
-    if (print_to_screen):
-        ani = FuncAnimation(fig, plot_data, np.arange(nframes), 
-                            fargs=[], interval=1)
-        plt.show()
-    else:
-        ani = FuncAnimation(fig, plot_data, np.arange(nframes), 
-                            fargs=[], interval=1)
-        Writer = animation.writers["ffmpeg"]
-        writer = Writer(fps=15, bitrate=1500)
-        ani.save(out_file,writer=writer)
-else:
-    plot_data(0)
-    if (print_to_screen):
-        plt.show()
-    else:
-        plt.savefig(out_file, bbox_inches='tight', transparent=True)
+pfield.plot(out_file, make_movie, print_to_screen)

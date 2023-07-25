@@ -5,7 +5,7 @@ import math
 args = sys.argv
 
 if (len(args) < 6):
-    print("Usage: average_multi_files.py ncols ref_col startpt",
+    print("Usage: average_multi_files_fields.py ncols ref_col startpt",
           "output_file data_files")
     sys.exit(1)
 
@@ -54,7 +54,7 @@ for rows in zip(*files):
         n = float(n)
         if (n > 1.0):
             if (has_ref_col):
-                writer.write("{:f} ".format(ref))
+                writer.write("{:g} ".format(ref))
             for i in cols:
                 avg[i] /= n
                 avgSq[i] /= n

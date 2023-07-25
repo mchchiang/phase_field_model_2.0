@@ -1,8 +1,4 @@
-# 
-# TimeAverage.py
-#
-# A script to compute the time average of a data set.
-#
+# time_average.py
 
 import sys
 import math
@@ -10,18 +6,17 @@ import math
 args = sys.argv
 
 if (len(args) != 8):
-    print("Usage: TimeAverage.py [time_col] [value_col]",
-          "[t_start] [t_end] [t_inc] [data_file] [output_file]")
+    print("Usage: time_average.py time_col value_col",
+          "t_start t_end t_inc data_file output_file")
     sys.exit(1)
 
-args.pop(0) # Ignore self
-time_col = int(args.pop(0)) # Time column
-value_col = int(args.pop(0)) # Data column
-t_start = int(args.pop(0)) # First sampled point
-t_end = int(args.pop(0))
-t_inc = int(args.pop(0))
-data_file = args.pop(0) # Data file name
-output_file = args.pop(0) # Output file name
+time_col = int(args.pop(1)) # Time column
+value_col = int(args.pop(1)) # Data column
+t_start = int(args.pop(1)) # First sampled point
+t_end = int(args.pop(1))
+t_inc = int(args.pop(1))
+data_file = args.pop(1) # Data file name
+output_file = args.pop(1) # Output file name
 
 # Read data file and store average
 avg = 0.0

@@ -131,8 +131,8 @@ if (data_col >= 0):
 # Plot settings
 fontsize = 14 #20
 norm = mpl.colors.Normalize(vmin=data_min, vmax=data_max, clip=True)
-#mapper = cm.ScalarMappable(norm=norm, cmap=cm.RdYlBu_r)
-mapper = cm.ScalarMappable(norm=norm, cmap=cm.hsv)
+mapper = cm.ScalarMappable(norm=norm, cmap=cm.RdYlBu_r)
+#mapper = cm.ScalarMappable(norm=norm, cmap=cm.hsv)
 mapper.set_array([])
 fig, ax = plt.subplots()
 ax.set_aspect('equal') # For maintaining aspect ratio

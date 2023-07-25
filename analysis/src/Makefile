@@ -14,9 +14,10 @@ LODIR = ../bin/lib
 ODIR := ../bin/obj
 EDIR := ../bin/exe
 
-CONDA_DIR := /home/s1309877/.local/bin/miniconda3/envs/myUtil/
+#CONDA_DIR := /home/s1309877/.local/bin/miniconda3/envs/myUtil/
+CONDA_DIR := /home/cchiang2/programs/miniconda3/envs/myUtil/
 INC = -I$(CONDA_DIR)/include/ -I$(LDIR)
-LDFLAGS := -L$(CONDA_DIR)/lib/ -lm -lgomp -larmadillo
+LDFLAGS := -L$(CONDA_DIR)/lib/ -lm -lgomp -larmadillo -lgsl
 
 LSRCC := $(wildcard $(LDIR)/*.c)
 LOBJC := $(patsubst %.c, $(LODIR)/%.o, $(notdir $(LSRCC)))

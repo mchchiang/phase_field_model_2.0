@@ -1,11 +1,13 @@
-// msd.cpp
-// A code that computes the mean square displacement from the trajectory file
+// self_int_scatter.cpp
+// A code that computes the self intermediate scattering function from the
+// trajectory file
 
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <vector>
 #include <string>
+#include <cmath>
 #include <omp.h>
 #include "position.hpp"
 #include "array.hpp"
@@ -19,9 +21,9 @@ using std::string;
 
 int main (int argc, char* argv[]) {
   
-  if (argc != 11) {
-    cout << "Usage: msd npoints lx ly startTime endTime "
-	 << "timeInc endShiftTime posFile posBulkFile outFile" << endl;
+  if (argc != 13) {
+    cout << "Usage: self_int_scatter npoints lx ly nqvecs r0 startTime "
+	 << "endTime timeInc endShiftTime posFile posBulkFile outFile" << endl;
     return 1;
   }
   
@@ -29,6 +31,8 @@ int main (int argc, char* argv[]) {
   int npoints = stoi(string(argv[++argi]), nullptr, 10);
   int lx = stoi(string(argv[++argi]), nullptr, 10);
   int ly = stoi(string(argv[++argi]), nullptr, 10);
+  int nqvecs = stoi(string(argv[++argi]), nullptr, 10);
+  double r0 = stod(string(argv[++argi]), nullptr);
   long startTime = stoi(string(argv[++argi]), nullptr, 10);
   long endTime = stoi(string(argv[++argi]), nullptr, 10);
   long timeInc = stoi(string(argv[++argi]), nullptr, 10);
@@ -36,6 +40,8 @@ int main (int argc, char* argv[]) {
   string posFile (argv[++argi]);
   string posBulkFile (argv[++argi]);
   string outFile (argv[++argi]);
+
+  double qmag = M_PI/r0;
   
   PositionReader reader;
   if (!reader.open(posFile, npoints, lx, ly)) {
@@ -94,6 +100,16 @@ int main (int argc, char* argv[]) {
   }
   cmReader.close();
 
+  // Store a set of orietations for the q vectors to average over
+  double** qvecs = create2DArray<double>(nqvecs, 2);
+  double theta;
+  for (int i = 0; i < nqvecs; i++) {
+    theta = i*(2.0*M_PI/nqvecs);
+    qvecs[i][0] = qmag*cos(theta);
+    qvecs[i][1] = qmag*sin(theta);
+  }
+
+  // Compute the self intermediate scattering function
   int endShiftBin = static_cast<int>((endShiftTime-startTime)/timeInc)+1;
   if (endShiftBin >= nbins) endShiftBin = nbins-1;
 
@@ -102,20 +118,21 @@ int main (int argc, char* argv[]) {
 #else
   int nthreads = 1;
 #endif
-  double** r2avg = create2DArray<double>(nthreads, nbins);
-  double** r4avg = create2DArray<double>(nthreads, nbins);
+  double** cosAvg = create2DArray<double>(nthreads, nbins);
+  double** sinAvg = create2DArray<double>(nthreads, nbins);
+  double*** dr = create3DArray<double>(nthreads, npoints, 2);
   long** count = create2DArray<long>(nthreads, nbins);
 
-#pragma omp parallel default(none) \
-  shared(nbins, npoints, pos, r2avg, r4avg, count, totCM, endShiftBin)	\
-  private(ibin)
+#pragma omp parallel default(none)					\
+  shared(nbins, npoints, nqvecs, pos, cosAvg, sinAvg, dr, count, totCM),\
+  shared(qvecs, endShiftBin) private(ibin)
   {
 #ifdef _OPENMP
     int id = omp_get_thread_num();
 #else
     int id = 0;
 #endif
-    double dx, dy, r2, r4, dxcm, dycm;
+    double dxcm, dycm, qdr;
 #pragma omp for schedule(dynamic,10)
     for (int i = 0; i < endShiftBin; i++) {
       for (int j = i+1; j < nbins; j++) {
@@ -123,14 +140,17 @@ int main (int argc, char* argv[]) {
 	dxcm = totCM[j][0]-totCM[i][0];
 	dycm = totCM[j][1]-totCM[i][1];
 	for (int k = 0; k < npoints; k++) {
-	  dx = (pos[j][k][0]-pos[i][k][0])-dxcm;
-	  dy = (pos[j][k][1]-pos[i][k][1])-dycm;
-	  r2 = dx*dx + dy*dy;
-	  r4 = r2*r2;
-	  r2avg[id][ibin] += r2;
-	  r4avg[id][ibin] += r4;
+	  dr[id][k][0] = (pos[j][k][0]-pos[i][k][0])-dxcm;
+	  dr[id][k][1] = (pos[j][k][1]-pos[i][k][1])-dycm;
 	}
-	count[id][ibin] += npoints;
+	for (int k = 0; k < nqvecs; k++) {
+	  for (int l = 0; l < npoints; l++) {
+	    qdr = qvecs[k][0]*dr[id][l][0]+qvecs[k][1]*dr[id][l][1];
+	    cosAvg[id][ibin] += cos(qdr);
+	    sinAvg[id][ibin] += sin(qdr);
+	  }
+	  count[id][ibin] += npoints;
+	}
       }     
     }
   }
@@ -138,15 +158,17 @@ int main (int argc, char* argv[]) {
   // Combine results
   for (int i = 1; i < nthreads; i++) {
     for (int j = 0; j < nbins; j++) {
-      r2avg[0][j] += r2avg[i][j];
-      r4avg[0][j] += r4avg[i][j];
+      cosAvg[0][j] += cosAvg[i][j];
+      sinAvg[0][j] += sinAvg[i][j];
       count[0][j] += count[i][j];
     }
   }
   // Normalise results
+  cosAvg[0][0] = 1.0;
+  sinAvg[0][0] = 0.0;
   for (int i = 1; i < nbins; i++) {
-    r2avg[0][i] /= static_cast<double>(count[0][i]);
-    r4avg[0][i] /= static_cast<double>(count[0][i]);
+    cosAvg[0][i] /= static_cast<double>(count[0][i]);
+    sinAvg[0][i] /= static_cast<double>(count[0][i]);
   }
 
   // Output results
@@ -158,14 +180,16 @@ int main (int argc, char* argv[]) {
   }
   
   for (int i = 0; i < nbins; i++) {
-    writer << (i*timeInc) << " " << r2avg[0][i] << " " << r4avg[0][i] << "\n";
+    writer << (i*timeInc) << " " << cosAvg[0][i] << " " << sinAvg[0][i]
+	   << "\n";
   }
   writer.close();
   
   // Clean up
   deleteArray(pos);
   deleteArray(totCM);
-  deleteArray(r2avg);
-  deleteArray(r4avg);
+  deleteArray(cosAvg);
+  deleteArray(sinAvg);
+  deleteArray(dr);
   deleteArray(count);
 }

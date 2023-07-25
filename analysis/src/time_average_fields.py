@@ -59,13 +59,13 @@ with open(out_file, "w") as writer:
         for i in cols:
             var = n / (n-1.0) * (avgSq[i] - avg[i]*avg[i])
             if (var < 0.0):
-                print("Negative variance: var = {:.5f}".format(var))
+                print("Negative variance: var = {:e}".format(var))
             sigma = math.sqrt(abs(var)) 
             error = sigma / math.sqrt(n)
-            writer.write("{:.5e} {:.5e} {:.5e} ".format(avg[i], sigma, error))
+            writer.write("{:e} {:e} {:e} ".format(avg[i], sigma, error))
         writer.write("\n")
     else:
         for i in cols:
-            writer.write("{:.5e} {:.5e} {:.5e}\n".format(avg[i], 0.0, 0.0))
+            writer.write("{:e} {:e} {:e} ".format(avg[i], 0.0, 0.0))
         writer.write("\n")
 
