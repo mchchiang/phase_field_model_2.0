@@ -11,6 +11,7 @@ from matplotlib import colors
 from matplotlib.animation import FuncAnimation
 from matplotlib.collections import PatchCollection
 from matplotlib.patches import Polygon
+from matplotlib.markers import MarkerStyle
 
 # Helper functions
 
@@ -21,6 +22,19 @@ def get_eigvec(smat):
     # Want the angle/phase of the minor axis
     axis = 0 if eigval[0] < eigval[1] else 1
     return eigvec[:,axis]
+
+# For periodic boundary conditions
+def idiff(l, i1, i2):
+    di = i1-i2
+    return di-int(np.round(di/float(l)))*l
+
+def iwrap(l, i):
+    remainder = np.fmod(i,l)
+    return remainder if remainder >= 0 else l+remainder
+
+def iwrap_array(l, x):
+    arr = np.fmod(x,l).astype(int)
+    return arr+l*((-np.sign(arr)+1)/2).astype(int)
 
 # List of parameters
 class PlotCellFieldParams:
@@ -53,13 +67,13 @@ class PlotCellField:
         self.nframes = (self.tend-self.tstart)//self.tinc+1
         self.xbuff = self.lx*0.2
         self.ybuff = self.ly*0.2
-
+        
         # Define periodic locations
         self.periodic_loc = [(self.lx,-self.ly),(self.lx,0),(self.lx,self.ly),
                              (0,-self.ly),(0,0),(0,self.ly),
                              (-self.lx,-self.ly),(-self.lx,0),
                              (-self.lx,self.ly)]
-        
+       
         # Data arrays
         self.polygons = [[] for i in range(self.nframes)]
         self.points = [[] for i in range(self.nframes)]
@@ -82,7 +96,16 @@ class PlotCellField:
         self.edge_alpha = 1.0 # Transparency of cell edges
 
         # Latex settings
-        rc={"font.size" : self.fontsize,
+        cc = "black"
+        lwidth = 1.0
+        rc={"font.family" : "sans-serif",
+            "font.sans-serif" : "FreeSans",
+            "font.size" : self.fontsize,
+            "text.color" : cc,
+            "axes.edgecolor" : cc,
+            "axes.labelcolor" : cc,
+            "axes.linewidth" : lwidth,
+            "axes.unicode_minus" : False,
             "text.usetex" : True,
             "text.latex.preamble" :
             r"\usepackage{amsmath}" +
@@ -99,11 +122,12 @@ class PlotCellField:
         for k in rc:
             mpl.rcParams[k] = rc[k]
         
-        #plt.rcParams["font.family"] = "sans-serif"
-        #plt.rcParams["font.sans-serif"] = "FreeSans" # A font close to Helvet.
-
         # Get axes and figures
-        self.fig, self.ax = plt.subplots()
+        xcm = 10
+        ycm = 10
+        toin = lambda x : x/2.54
+        plt_dims = (toin(xcm),toin(ycm))
+        self.fig, self.ax = plt.subplots(figsize=plt_dims)
         self.ax.set_aspect("equal") # For maintaining aspect ratio
         self.ax.set_xlim([0,self.lx])
         self.ax.set_ylim([0,self.ly])
@@ -159,7 +183,8 @@ class PlotCellField:
         self._load_data()
         
     def set_cbar(self, label=None, ticks=None):
-        self.cbar = plt.colorbar(self.mapper, fraction=0.15, pad=0.02)
+        self.cbar = self.fig.colorbar(self.mapper, fraction=0.046, pad=0.04,
+                                      ax=self.ax)
         if (ticks is None):
             self.cbar.set_ticks(np.arange(
                 self.tic_min, self.tic_max+self.tic_inc*0.5, self.tic_inc))
@@ -397,6 +422,7 @@ class PlotCellField:
                     index, xavg, yavg, self.pos[frame,index,0], 
                     self.pos[frame,index,1], pt[0], pt[1], contour, frame)
 
+########################################
 
 class PlotForce:
     def __init__(self, pfield, force_file, scale=600.0):
@@ -494,6 +520,7 @@ class PlotForce:
     def get_artists(self):
         return self.plt_forces,
 
+########################################    
     
 class PlotDeformAngle:
     def __init__(self, pfield, deform_file):
@@ -577,6 +604,7 @@ class PlotSimpleData:
     def get_artists(self):
         pass # No new artist generated
 
+########################################
 
 class PlotDirector:
     def __init__(self, pfield, director_file, alpha=1.0):
@@ -591,12 +619,6 @@ class PlotDirector:
                                   units="xy", scale_units="xy", pivot="mid",
                                   scale=0.5, width=0.3, headlength=0,
                                   headaxislength=0, color="black", alpha=alpha)
-        # self.plt_def_vec = ax.quiver(self.vec[0,:,0], self.vec[0,:,1],
-        #                              self.vec[0,:,2], self.vec[0,:,3],
-        #                              angles="xy", units="xy", scale_units="xy",
-        #                             pivot="mid", color="black", headlength=0,
-        #                            headaxislength=0, alpha=alpha)
-
         
     def update(self, frame, pfield):
         # Read the director field data
@@ -615,6 +637,8 @@ class PlotDirector:
     def get_artists(self):
         return self.plt_ndir,
 
+########################################
+    
 class PlotDefect:
     def __init__(self, pfield, defect_file):
         self.defect_file = defect_file
@@ -664,6 +688,152 @@ class PlotDefect:
     def get_artists(self):
         return self.plt_pve_defects, self.plt_nve_defects,
 
+########################################
+    
+class PlotDefectSpecial:
+    def __init__(self, pfield, defect_file, director_file):
+        self.defect_file = defect_file
+        self.director_file = director_file
+        self.lx = pfield.lx
+        self.ly = pfield.ly
+        self.ax = pfield.ax
+        self.ndir = np.zeros((self.lx, self.ly, 2))        
+
+        # Read defects
+        self.defects = [[] for n in range(pfield.nframes)]
+        with open(self.defect_file, "r") as reader:
+            while True:
+                # Read header
+                data = reader.readline().split()
+                if (len(data) == 0): break
+                ndefects = int(data[1])
+                data = reader.readline().split()
+                time = int(data[1])
+                if (time > pfield.tend):
+                    break
+                elif (time < pfield.tstart or
+                      (time-pfield.tstart) % pfield.tinc != 0):
+                    for n in range(ndefects):
+                        reader.readline()
+                    continue
+                frame = int((time-pfield.tstart) // pfield.tinc)
+                for n in range(ndefects):
+                    data = np.asarray(reader.readline().split()).astype(float)
+                    self.defects[frame].append(data)
+                self.defects[frame] = np.asarray(self.defects[frame])
+
+        # Set contour for determining defect orientation
+        width = 9
+        cmin = int(-width/2)
+        cmax = cmin+width-1
+        cmina = np.full(width-1,cmin)
+        cmaxa = np.full(width-1,cmax)
+        inc = np.arange(width-1)+cmin
+        dec = inc[::-1]+1
+        self.contour = np.r_[np.c_[inc,cmina],np.c_[cmaxa,inc],
+                             np.c_[dec,cmaxa],np.c_[cmina,dec]]
+        self.contour_dir = self.contour/np.linalg.norm(
+            self.contour,axis=1)[:,None]
+
+        # Array of artists for plotting defects
+        self.plt_pve_dft_prev = []
+        self.plt_nve_dft_prev = []
+        self.plt_pve_dft = []
+        self.plt_nve_dft = []
+        
+    def find_angle(self, x, y):
+        loop = np.c_[iwrap_array(self.lx, self.contour[:,0]+x),
+                     iwrap_array(self.ly, self.contour[:,1]+y)]
+        loop_ndir = self.ndir[loop[:,0],loop[:,1]]
+
+        # Compute dot product to determine (nematic) alignment
+        costheta = np.sum(self.contour_dir*loop_ndir,axis=1)
+        
+        # Find maximum
+        idx = np.argmax(2*costheta*costheta-1)
+        return np.arctan2(-self.contour_dir[idx,1],
+                          -self.contour_dir[idx,0])+np.pi
+        
+    def update(self, frame, pfield):
+        # Read the director field data
+        time = pfield.time_map[frame]
+        dir_file = "{:s}.{:d}".format(self.director_file,time)
+        with open(dir_file, "r") as reader:
+            for line in reader:
+                data = line.split()
+                if (len(data) == 0): continue
+                x = int(data[0])
+                y = int(data[1])
+                self.ndir[x,y,0] = float(data[2])
+                self.ndir[x,y,1] = float(data[3])
+        
+        dft = self.defects[frame]
+
+        # Compute the orientation for each defect        
+        dft_angle = np.asarray([self.find_angle(dft[i,0],dft[i,1])
+                                for i in range(len(dft))])
+
+        # Clean up old artists
+        for p in self.plt_pve_dft_prev:
+            p.remove()
+        for p in self.plt_nve_dft_prev:
+            p.remove()
+
+        self.plt_pve_dft_prev = self.plt_pve_dft
+        self.plt_pve_dft = []
+        self.plt_nve_dft_prev = self.plt_nve_dft
+        self.plt_nve_dft = []        
+        
+        # Empty coords so that the old defects are removed
+        empty = np.empty((1,2))
+        for p in self.plt_pve_dft_prev:
+            p.set_offsets(empty)
+        for p in self.plt_nve_dft_prev:
+            p.set_offsets(empty)
+                        
+        if (len(dft) > 0):
+            pve_dft_idx = dft[:,2] > 0.0
+            nve_dft_idx = dft[:,2] < 0.0
+            pve_dft = dft[pve_dft_idx]
+            pve_dft_angle = dft_angle[pve_dft_idx]
+            nve_dft = dft[nve_dft_idx]
+            nve_dft_angle = dft_angle[nve_dft_idx]
+
+            # Set size of markers
+            pve_ms = 250
+            nve_ms = 350
+            lw = 4
+            
+            # Draw positive defects
+            for i in range(len(pve_dft)):
+                m = MarkerStyle(1)
+                m._transform.rotate(pve_dft_angle[i])
+                self.plt_pve_dft.append(
+                    self.ax.scatter(pve_dft[i,0], pve_dft[i,1], marker=m,
+                                    s=pve_ms, linewidth=lw, color="red"))
+                self.plt_pve_dft.append(
+                    self.ax.scatter(pve_dft[i,0], pve_dft[i,1], marker="o",
+                                    linewidth=lw, color="red"))
+            # Draw negative defects
+            for i in range(len(nve_dft)):
+                m = MarkerStyle("4")
+                m._transform.rotate(nve_dft_angle[i])
+                self.plt_nve_dft.append(
+                    self.ax.scatter(nve_dft[i,0], nve_dft[i,1], marker=m,
+                                    s=nve_ms, linewidth=lw, color="blue"))
+        else:
+            self.plt_pve_dft = [self.ax.scatter([], [], marker="o",
+                                                linewidth=lw, color="red")]
+            self.plt_nve_dft = [self.ax.scatter([], [], marker="4",
+                                                s=nve_ms, linewidth=lw,
+                                                color="blue")]
+            
+    def get_artists(self):
+        return *self.plt_pve_dft_prev, *self.plt_nve_dft_prev, \
+            *self.plt_pve_dft, *self.plt_nve_dft,
+    
+########################################
+    
 class PlotDeformAxis:
     def __init__(self, pfield, deform_file, alpha=1.0):
         self.vec = np.zeros((pfield.nframes,pfield.npoints,4))
@@ -715,7 +885,8 @@ class PlotDeformAxis:
     def get_artists(self):
         return self.plt_def_vec,
 
-    
+########################################
+
 """
 class PlotDefectTrajectory:
     def __init_(self, pfield, traj_file):

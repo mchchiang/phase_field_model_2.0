@@ -33,7 +33,7 @@ pfield = PlotCellField(params)
 found_new_options = False
 options = ["--force", "--data", "--colour-by-index", "--cm", "--director",
            "--focus", "--time-label", "--deform-angle", "--defect", "--cbar",
-           "--deform-axis", "--edge-alpha", "--cell-alpha"]
+           "--defect-special", "--deform-axis", "--edge-alpha", "--cell-alpha"]
 show_cbar = False
 
 
@@ -149,6 +149,14 @@ for opt in opts:
             sys.exit(1)
         defect_file = opt.pop(1)
         pdefect = PlotDefect(pfield, defect_file)
+        pfield.add_plot_comp(pdefect)
+    elif (option == "--defect-special"):
+        if (len(opt) != 3):
+            print("Usage: --defect defect_file director_file")
+            sys.exit(1)
+        defect_file = opt.pop(1)
+        director_file = opt.pop(1)
+        pdefect = PlotDefectSpecial(pfield, defect_file, director_file)
         pfield.add_plot_comp(pdefect)
 
 
